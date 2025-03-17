@@ -6,6 +6,7 @@ import torch
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from PIL import Image
+from tqdm import tqdm
 from transformers import TrOCRProcessor
 
 import evaluate
@@ -41,13 +42,18 @@ class IAMDataset(Dataset):
     def __len__(self):
         return len(self.df)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> dict:
         # get file name + text
         image = Image.open(os.path.join(self.root_dir, self.df.iloc[index]['filename'])).convert('RGB')
-        crop_image = image.crop(eval(self.df.iloc[index]['bbox']))
+
+        bbox_coordinates = self.df.iloc[index]['bbox']
+        if isinstance(bbox_coordinates, str):
+            bbox_coordinates = eval(bbox_coordinates)
+
+        crop_image = image.crop(bbox_coordinates)
         pixel_values = self.processor(crop_image, return_tensors="pt").pixel_values
 
-        text = self.df.iloc[index]['number']
+        text = str(self.df.iloc[index]['number'])
         # add labels (input_ids) by encoding the text
         labels = self.processor.tokenizer(text,
                                           padding="max_length",
@@ -57,6 +63,50 @@ class IAMDataset(Dataset):
         labels = [label if label != self.processor.tokenizer.pad_token_id else -100 for label in labels]
 
         encoding = {"pixel_values": pixel_values.squeeze(), "labels": torch.tensor(labels)}
+        return encoding
+
+
+class HandWrittenTestDataset(Dataset):
+    def __init__(self, root_dir, object_detection_dataset_version, processor, max_target_length=3):
+        self.root_dir = root_dir
+        self._object_detection_dataset_version = object_detection_dataset_version
+        self.df = df
+        self.processor = processor
+        self.max_target_length = max_target_length
+
+    def get_df_with_bounding_boxes(self) -> pd.DataFrame:
+        data = {
+            'filename': [],
+            'bbox': []
+        }
+        for asset in tqdm(self._object_detection_dataset_version.list_assets()):
+            filename = asset.filename
+
+            try:
+                annotation = asset.list_annotations()[0]
+                rectangle = annotation.list_rectangles()[0]
+                xyxy_bbox = [rectangle.x, rectangle.y, rectangle.w + rectangle.x, rectangle.h + rectangle.y]
+
+                data['filename'].append(filename)
+                data['bbox'].append(xyxy_bbox)
+
+            except IndexError:
+                data['filename'].append(filename)
+                data['bbox'].append(None)
+
+        df = pd.DataFrame(data)
+        return df[~df['bbox'].isnull()]
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, index):
+        # get file name + text
+        image = Image.open(os.path.join(self.root_dir, self.df.iloc[index]['filename'])).convert('RGB')
+        crop_image = image.crop(eval(self.df.iloc[index]['bbox']))
+        pixel_values = self.processor(crop_image, return_tensors="pt").pixel_values
+
+        encoding = {"pixel_values": pixel_values.squeeze(), 'filename': self.df.iloc[index]['filename']}
         return encoding
 
 
