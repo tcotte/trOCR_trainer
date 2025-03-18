@@ -114,12 +114,12 @@ def fill_picsellia_evaluation_tab(model: torch.nn.Module, data_loader: DataLoade
 
         for filename, text in zip(batch['filename'], generated_text):
             asset = classification_dataset_version.find_asset(filename=filename)
-            if text != '':
-                label = classification_dataset_version.get_or_create_label(name=text)
-                experiment.add_evaluation(asset, classifications=[(label, 1.0)])
 
-                job = experiment.compute_evaluations_metrics(InferenceType.CLASSIFICATION)
-                job.wait_for_done()
+            label = classification_dataset_version.get_or_create_label(name=text)
+            experiment.add_evaluation(asset, classifications=[(label, 1.0)])
+
+            job = experiment.compute_evaluations_metrics(InferenceType.CLASSIFICATION)
+            job.wait_for_done()
 
 if __name__ == '__main__':
     api_token = os.environ["api_token"]

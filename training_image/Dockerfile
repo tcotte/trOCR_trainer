@@ -10,7 +10,7 @@ RUN pip3 install picsellia
 WORKDIR /picsellia_folder
 
 
-COPY training_image/picsellia_folder .
+COPY picsellia_folder .
 
 RUN mkdir -p /saved_models && chmod 777 /saved_models
 RUN mkdir -p /datasets && chmod 777 /datasets
