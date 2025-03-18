@@ -44,10 +44,10 @@ class PicselliaLogger:
 
 
     def on_epoch_end(self, epoch:int, train_loss:float, val_cer:float, display_gpu_occupancy:bool):
-        logging.info(f"Loss after epoch {epoch}:", train_loss)
+        logging.info(f"Loss after epoch {epoch + 1}: {train_loss}")
         self._experiment.log(name='Training loss', type=LogType.LINE, data=train_loss)
 
-        logging.info("Validation CER:", val_cer)
+        logging.info(f"Validation CER: {val_cer}")
         self._experiment.log(name='Validation CER', type=LogType.LINE, data=val_cer)
 
         if display_gpu_occupancy:

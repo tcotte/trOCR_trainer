@@ -1,8 +1,11 @@
+import logging
 import os
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import torch
+from joblib import Parallel, delayed
+from picsellia import Asset
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from PIL import Image
@@ -67,46 +70,68 @@ class IAMDataset(Dataset):
 
 
 class HandWrittenTestDataset(Dataset):
-    def __init__(self, root_dir, object_detection_dataset_version, processor, max_target_length=3):
+    def __init__(self, root_dir, object_detection_dataset_version, processor, num_workers:int = os.cpu_count(),
+                 max_target_length=3):
         self.root_dir = root_dir
+        self.__num_workers = num_workers
         self._object_detection_dataset_version = object_detection_dataset_version
-        self.df = df
         self.processor = processor
         self.max_target_length = max_target_length
 
+        self._df = self.get_df_with_bounding_boxes()
+
+    @staticmethod
+    def complete_dataframe_row(asset: Asset) -> dict:
+        data = {}
+
+        filename = asset.filename
+
+        try:
+            annotation = asset.list_annotations()[0]
+            rectangle = annotation.list_rectangles()[0]
+            xyxy_bbox = [rectangle.x, rectangle.y, rectangle.w + rectangle.x, rectangle.h + rectangle.y]
+
+            data['filename'].append(filename)
+            data['bbox'].append(xyxy_bbox)
+
+        except IndexError:
+            data['filename'].append(filename)
+            data['bbox'].append(None)
+
+        return data
+
     def get_df_with_bounding_boxes(self) -> pd.DataFrame:
+        logging.info('Prepare evaluation dataframe...')
+
         data = {
             'filename': [],
             'bbox': []
         }
-        for asset in tqdm(self._object_detection_dataset_version.list_assets()):
-            filename = asset.filename
 
-            try:
-                annotation = asset.list_annotations()[0]
-                rectangle = annotation.list_rectangles()[0]
-                xyxy_bbox = [rectangle.x, rectangle.y, rectangle.w + rectangle.x, rectangle.h + rectangle.y]
+        list_rows_df = Parallel(n_jobs=self.__num_workers)(
+            delayed(self.complete_dataframe_row)(asset) for
+            asset in tqdm(self._object_detection_dataset_version.list_assets()))
 
-                data['filename'].append(filename)
-                data['bbox'].append(xyxy_bbox)
+        for row in list_rows_df:
+            for key in row.keys():
+                data[key].append(row[key])
 
-            except IndexError:
-                data['filename'].append(filename)
-                data['bbox'].append(None)
 
         df = pd.DataFrame(data)
+        logging.info('Evaluation dataframe was completed !')
+
         return df[~df['bbox'].isnull()]
 
     def __len__(self):
-        return len(self.df)
+        return len(self._df)
 
     def __getitem__(self, index):
         # get file name + text
-        image = Image.open(os.path.join(self.root_dir, self.df.iloc[index]['filename'])).convert('RGB')
-        crop_image = image.crop(eval(self.df.iloc[index]['bbox']))
+        image = Image.open(os.path.join(self.root_dir, self._df.iloc[index]['filename'])).convert('RGB')
+        crop_image = image.crop(eval(self._df.iloc[index]['bbox']))
         pixel_values = self.processor(crop_image, return_tensors="pt").pixel_values
 
-        encoding = {"pixel_values": pixel_values.squeeze(), 'filename': self.df.iloc[index]['filename']}
+        encoding = {"pixel_values": pixel_values.squeeze(), 'filename': self._df.iloc[index]['filename']}
         return encoding
 
 

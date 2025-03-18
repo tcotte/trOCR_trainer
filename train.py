@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Optional
 
 import evaluate
 import pandas as pd
@@ -31,19 +32,6 @@ def compute_cer(pred_ids, label_ids):
 
     return cer
 
-def get_alias(dataset_version_name: str) -> str:
-    '''
-    Get alias (which could be "classification" or "object_detection") from dataset version name. To be recognized, alias
-    has to take part of dataset version name.
-    :param dataset_version_name:
-    :return:
-    '''
-    for name in ['classification', 'object_detection']:
-        if name in dataset_version_name:
-            return name
-
-    raise ValueError('Unknown dataset')
-
 def get_encoder_decoder_model(model_weights: str) -> torch.nn:
     model = VisionEncoderDecoderModel.from_pretrained(vision_encoder_decoder_model_weights)
 
@@ -63,6 +51,68 @@ def get_encoder_decoder_model(model_weights: str) -> torch.nn:
 
     return model
 
+def train_model(model: torch.nn.Module, nb_epochs: int, picsellia_logger: PicselliaLogger):
+    picsellia_logger.on_train_begin()
+
+    for epoch in range(nb_epochs):  # loop over the dataset multiple times
+        # train
+        model.train()
+        train_loss = 0.0
+
+        with tqdm(train_dataloader, unit="batch") as t_epoch:
+            for batch in t_epoch:
+                t_epoch.set_description(f"Epoch {epoch}")
+
+                # get the inputs
+                for k, v in batch.items():
+                    batch[k] = v.to(device)
+
+                # forward + backward + optimize
+                outputs = model(**batch)
+                loss = outputs.loss
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+
+                train_loss += loss.item()
+
+        # evaluate
+        model.eval()
+        valid_cer = 0.0
+        with torch.no_grad():
+            for batch in eval_dataloader:
+                # run batch generation
+                outputs = model.generate(batch["pixel_values"].to(device))
+                # compute metrics
+                cer = compute_cer(pred_ids=outputs, label_ids=batch["labels"])
+                valid_cer += cer
+
+        t_epoch.set_postfix(
+            training_loss=train_loss / len(train_dataloader),
+            validation_CER=valid_cer / len(eval_dataloader))
+
+        picsellia_logger.on_epoch_end(epoch=epoch,
+                                      train_loss=train_loss / len(train_dataloader),
+                                      val_cer=valid_cer / len(eval_dataloader),
+                                      display_gpu_occupancy=True if torch.cuda.is_available() else False)
+
+    return model
+
+def fill_picsellia_evaluation_tab(model: torch.nn.Module, data_loader) -> None:
+    model.eval()
+
+    for batch in tqdm(data_loader):
+
+        with torch.no_grad():
+            outputs = model.generate(batch["pixel_values"].to(device))
+        generated_text = processor.batch_decode(outputs, skip_special_tokens=True)
+
+        for filename, text in zip(batch['filename'], generated_text):
+            asset = val_object_detection_dataset.find_asset(filename=filename)
+            experiment.add_evaluation(asset, classifications=text)
+            job = experiment.compute_evaluations_metrics(InferenceType.OBJECT_DETECTION)
+
+    job.wait_for_done()
 
 if __name__ == '__main__':
     api_token = os.environ["api_token"]
@@ -71,10 +121,6 @@ if __name__ == '__main__':
 
     client = Client(api_token=api_token, organization_id=organization_id)
     experiment = client.get_experiment_by_id(id=os.environ["experiment_id"])
-
-    # dataset_version_classification =
-    # dataset_version_object_detection =
-    # root_dataset_path = 'datasets'
 
     context = experiment.get_log(name='parameters').data
     nb_epochs  = context["nb_epochs"]
@@ -86,6 +132,7 @@ if __name__ == '__main__':
     pretrained_trOCR_processor_weights = context["pretrained_trOCRprocessor"]
     train_classification_dataset_id = experiment.get_dataset(name='train').id
     vision_encoder_decoder_model_weights = context["vision_encoder_decoder_model_weights"]
+    num_workers: Optional[int] = context["num_workers"] if context["num_workers"] is not None else os.cpu_count()
 
 
 
@@ -98,8 +145,6 @@ if __name__ == '__main__':
         if not os.path.isdir(dataset_path):
             dataset_version = client.get_dataset_version_by_id(dataset_id)
             dataset_version.download(dataset_path)
-
-
 
     metric = evaluate.load("cer")
     processor = TrOCRProcessor.from_pretrained(pretrained_trOCR_processor_weights)
@@ -126,8 +171,8 @@ if __name__ == '__main__':
     train_dataset = IAMDataset(root_dir=dataset_train_path, df=train_df, processor=processor)
     validation_dataset = IAMDataset(root_dir=dataset_train_path, df=validation_df, processor=processor)
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    eval_dataloader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    eval_dataloader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     model = get_encoder_decoder_model(model_weights=vision_encoder_decoder_model_weights)
 
@@ -141,44 +186,12 @@ if __name__ == '__main__':
 
     picsellia_logger.on_train_begin()
 
-    for epoch in range(nb_epochs):  # loop over the dataset multiple times
-        # train
-        model.train()
-        train_loss = 0.0
-        for batch in train_dataloader:
-            # get the inputs
-            for k, v in batch.items():
-                batch[k] = v.to(device)
-
-            # forward + backward + optimize
-            outputs = model(**batch)
-            loss = outputs.loss
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-
-            train_loss += loss.item()
-
-        # evaluate
-        model.eval()
-        valid_cer = 0.0
-        with torch.no_grad():
-            for batch in eval_dataloader:
-                # run batch generation
-                outputs = model.generate(batch["pixel_values"].to(device))
-                # compute metrics
-                cer = compute_cer(pred_ids=outputs, label_ids=batch["labels"])
-                valid_cer += cer
-
-        picsellia_logger.on_epoch_end(epoch=epoch,
-                                      train_loss=train_loss / len(train_dataloader),
-                                      val_cer=valid_cer / len(eval_dataloader),
-                                      display_gpu_occupancy=True if torch.cuda.is_available() else False)
+    model = train_model(model=model, nb_epochs=nb_epochs, picsellia_logger=picsellia_logger)
 
     # save model
     model.save_pretrained(".")
 
-    model_path = 'model'
+    model_path = 'saved_models'
     os.makedirs(model_path, exist_ok=True)
     model_path = os.path.join(model_path, 'best.pth')
     torch.save(model.state_dict(), model_path)
@@ -199,30 +212,6 @@ if __name__ == '__main__':
                                           object_detection_dataset_version=val_object_detection_dataset,
                                           processor=processor)
 
-    data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    test_data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    model.to(device)
-    model.eval()
-
-    evaluation_classifications = []
-
-    for batch in tqdm(data_loader):
-
-        with torch.no_grad():
-            outputs = model.generate(batch["pixel_values"].to(device))
-        generated_text = processor.batch_decode(outputs, skip_special_tokens=True)
-
-        for filename, text in zip(batch['filename'], generated_text):
-            asset = val_object_detection_dataset.find_asset(filename=filename)
-            experiment.add_evaluation(asset, classifications=text)
-            job = experiment.compute_evaluations_metrics(InferenceType.OBJECT_DETECTION)
-
-    job.wait_for_done()
-
-
-
-
-        # for idx in range(batch_size):
-        #     asset = dataset_version.find_asset(filename=file_paths[idx])
-
-
+    fill_picsellia_evaluation_tab(model=model, data_loader=test_data_loader)
