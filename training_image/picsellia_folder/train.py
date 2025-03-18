@@ -18,7 +18,7 @@ from tqdm import tqdm
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
 from prepare_dataset import create_dataframe_with_bboxes
-from torch_dataset import IAMDataset, HandWrittenTestDataset
+from torch_dataset import HandWrittenTrainDataset, HandWrittenTestDataset
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)
 logging.getLogger().setLevel(logging.INFO)
@@ -124,7 +124,6 @@ def fill_picsellia_evaluation_tab(model: torch.nn.Module, data_loader: DataLoade
 if __name__ == '__main__':
     api_token = os.environ["api_token"]
     organization_id = os.environ["organization_id"]
-    # job_id = os.environ["job_id"]
 
     client = Client(api_token=api_token, organization_id=organization_id)
     experiment = client.get_experiment_by_id(id=os.environ["experiment_id"])
@@ -176,8 +175,8 @@ if __name__ == '__main__':
         title="Nb elem / split")
 
 
-    train_dataset = IAMDataset(root_dir=dataset_train_path, df=train_df, processor=processor)
-    validation_dataset = IAMDataset(root_dir=dataset_train_path, df=validation_df, processor=processor)
+    train_dataset = HandWrittenTrainDataset(root_dir=dataset_train_path, df=train_df, processor=processor)
+    validation_dataset = HandWrittenTrainDataset(root_dir=dataset_train_path, df=validation_df, processor=processor)
 
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     eval_dataloader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)

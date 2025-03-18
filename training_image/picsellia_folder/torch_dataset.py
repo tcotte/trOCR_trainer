@@ -35,7 +35,7 @@ class HandWrittenDataset(Dataset):
 
 
 
-class IAMDataset(Dataset):
+class HandWrittenTrainDataset(Dataset):
     def __init__(self, root_dir, df, processor, max_target_length=3):
         self.root_dir = root_dir
         self.df = df
@@ -92,11 +92,11 @@ class HandWrittenTestDataset(Dataset):
             xyxy_bbox = [rectangle.x, rectangle.y, rectangle.w + rectangle.x, rectangle.h + rectangle.y]
 
             data['filename'] = filename
-            data['bbox'].append(xyxy_bbox)
+            data['bbox'] = xyxy_bbox
 
         except IndexError:
-            data['filename'].append(filename)
-            data['bbox'].append(None)
+            data['filename'] = filename
+            data['bbox'] = None
 
         return data
 
@@ -154,7 +154,7 @@ if __name__ == '__main__':
     print(len(train_df), len(test_df))
 
 
-    train_dataset = IAMDataset(root_dir='data', df=train_df, processor=processor)
+    train_dataset = HandWrittenTrainDataset(root_dir='data', df=train_df, processor=processor)
     encoding = train_dataset[0]
 
     for k, v in encoding.items():

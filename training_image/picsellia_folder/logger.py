@@ -1,9 +1,10 @@
 import logging
 import os
 import uuid
+from collections import Counter
 from typing import Dict
 
-from picsellia import Client, Experiment
+from picsellia import Client, Experiment, DatasetVersion
 from picsellia.types.enums import LogType
 
 from utils import get_GPU_occupancy
@@ -42,6 +43,8 @@ class PicselliaLogger:
         logging.info(f"Successfully logged to Picsellia\n You can follow experiment here: "
               f"{self.get_picsellia_experiment_link()} ")
 
+        self.plot_dataset_version_labels(dataset_version_names=['train', 'val'])
+
 
     def on_epoch_end(self, epoch:int, train_loss:float, val_cer:float, display_gpu_occupancy:bool):
         self._experiment.log(name='Training loss', type=LogType.LINE, data=train_loss)
@@ -53,10 +56,40 @@ class PicselliaLogger:
             self._experiment.log(name='GPU occupancy (%)', type=LogType.LINE, data=get_GPU_occupancy())
 
     def store_model(self, model_path: str, model_name: str) -> None:
-        self._experiment.store(model_name, model_path, do_zip=True)
+        self._experiment.store(model_name, model_path, do_zip=False)
+
+    def plot_dataset_version_labels(self, dataset_version_names: list[str]) -> None:
+        for version_name in dataset_version_names:
+            self.dataset_label_distribution(dataset_version_name=version_name)
+
+
+    def dataset_label_distribution(self, dataset_version_name: str) -> None:
+        list_label_names = []
+
+        try:
+            dataset_version: DatasetVersion = self._experiment.get_dataset(name=dataset_version_name)
+
+            for annotation in dataset_version.list_annotations():
+                list_label_names.append(annotation.list_classifications()[0].label.name)
+
+            distribution_dict = Counter(list_label_names)
+            data = {'x': distribution_dict.keys(), 'y': distribution_dict.values()}
+            experiment.log(name=f'{dataset_version_name}_labels', type=LogType.BAR, data=data)
+
+        except Exception as e:
+            logging.warning(f'Dataset version with name {dataset_version_name} was not found')
 
 
 
 
 
+if __name__ == '__main__':
+    print(os.environ['api_token'])
+    client = Client(api_token=os.environ['api_token'], organization_id=os.environ["organization_id"])
+    experiment_id = '01959585-6ac0-7fd0-9163-4fb7d1f26065'
+    experiment = client.get_experiment_by_id(experiment_id)
+
+    training_dataset_version = experiment.get_dataset(name='train')
+
+    training_dataset_version.list_labels()
 

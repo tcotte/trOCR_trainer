@@ -3,6 +3,7 @@ LABEL authors="Tristan_COTTE"
 
 RUN pip3 config set global.trusted-host "download.pytorch.org cdn-lfs.hf.co huggingface.co"
 
+RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 RUN pip3 install evaluate
 RUN pip3 install jiwer
 RUN pip3 install picsellia
