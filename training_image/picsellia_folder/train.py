@@ -1,12 +1,14 @@
 import logging
 import os
 from typing import Optional
+from uuid import UUID
 
 import evaluate
 import pandas as pd
 import torch
-from picsellia import Client
+from picsellia import Client, DatasetVersion
 from picsellia.types.enums import InferenceType
+from sklearn.metrics import classification_report
 
 from logger import PicselliaLogger
 from sklearn.model_selection import train_test_split
@@ -33,7 +35,7 @@ def compute_cer(pred_ids, label_ids):
     return cer
 
 def get_encoder_decoder_model(model_weights: str) -> torch.nn:
-    model = VisionEncoderDecoderModel.from_pretrained(vision_encoder_decoder_model_weights)
+    model = VisionEncoderDecoderModel.from_pretrained(model_weights)
 
     # set special tokens used for creating the decoder_input_ids from the labels
     model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
@@ -98,8 +100,11 @@ def train_model(model: torch.nn.Module, nb_epochs: int, picsellia_logger: Picsel
 
     return model
 
-def fill_picsellia_evaluation_tab(model: torch.nn.Module, data_loader) -> None:
+
+def fill_picsellia_evaluation_tab(model: torch.nn.Module, data_loader: DataLoader, test_dataset_id: UUID) -> None:
     model.eval()
+
+    classification_dataset_version = client.get_dataset_version_by_id(test_dataset_id)
 
     for batch in tqdm(data_loader):
 
@@ -108,11 +113,13 @@ def fill_picsellia_evaluation_tab(model: torch.nn.Module, data_loader) -> None:
         generated_text = processor.batch_decode(outputs, skip_special_tokens=True)
 
         for filename, text in zip(batch['filename'], generated_text):
-            asset = val_object_detection_dataset.find_asset(filename=filename)
-            experiment.add_evaluation(asset, classifications=text)
-            job = experiment.compute_evaluations_metrics(InferenceType.OBJECT_DETECTION)
+            asset = classification_dataset_version.find_asset(filename=filename)
+            if text != '':
+                label = classification_dataset_version.get_or_create_label(name=text)
+                experiment.add_evaluation(asset, classifications=[(label, 1.0)])
 
-    job.wait_for_done()
+                job = experiment.compute_evaluations_metrics(InferenceType.CLASSIFICATION)
+                job.wait_for_done()
 
 if __name__ == '__main__':
     api_token = os.environ["api_token"]
@@ -131,12 +138,13 @@ if __name__ == '__main__':
     train_object_detection_dataset = client.get_dataset_version_by_id(eval(context["train_object_detection_id"]))
     pretrained_trOCR_processor_weights = context["pretrained_trOCRprocessor"]
     train_classification_dataset_id = experiment.get_dataset(name='train').id
+    val_classification_dataset_id = experiment.get_dataset(name='val').id
     vision_encoder_decoder_model_weights = context["vision_encoder_decoder_model_weights"]
     num_workers: Optional[int] = context["num_workers"] if context["num_workers"] is not None else os.cpu_count()
 
 
 
-    root_dataset_path = 'datasets'
+    root_dataset_path = '../../datasets'
     dataset_train_path = os.path.join(root_dataset_path, 'train_data')
     dataset_test_path = os.path.join(root_dataset_path, 'test_data')
 
@@ -184,8 +192,6 @@ if __name__ == '__main__':
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
-    picsellia_logger.on_train_begin()
-
     model = train_model(model=model, nb_epochs=nb_epochs, picsellia_logger=picsellia_logger)
 
     # save model
@@ -214,4 +220,5 @@ if __name__ == '__main__':
 
     test_data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    fill_picsellia_evaluation_tab(model=model, data_loader=test_data_loader)
+    fill_picsellia_evaluation_tab(model=model, data_loader=test_data_loader,
+                                  test_dataset_id=val_classification_dataset_id)

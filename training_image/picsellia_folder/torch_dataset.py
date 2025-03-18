@@ -91,7 +91,7 @@ class HandWrittenTestDataset(Dataset):
             rectangle = annotation.list_rectangles()[0]
             xyxy_bbox = [rectangle.x, rectangle.y, rectangle.w + rectangle.x, rectangle.h + rectangle.y]
 
-            data['filename'].append(filename)
+            data['filename'] = filename
             data['bbox'].append(xyxy_bbox)
 
         except IndexError:
@@ -128,7 +128,12 @@ class HandWrittenTestDataset(Dataset):
     def __getitem__(self, index):
         # get file name + text
         image = Image.open(os.path.join(self.root_dir, self._df.iloc[index]['filename'])).convert('RGB')
-        crop_image = image.crop(eval(self._df.iloc[index]['bbox']))
+
+        bbox_coordinates = self._df.iloc[index]['bbox']
+        if isinstance(bbox_coordinates, str):
+            bbox_coordinates = eval(bbox_coordinates)
+
+        crop_image = image.crop(bbox_coordinates)
         pixel_values = self.processor(crop_image, return_tensors="pt").pixel_values
 
         encoding = {"pixel_values": pixel_values.squeeze(), 'filename': self._df.iloc[index]['filename']}
@@ -142,7 +147,7 @@ if __name__ == '__main__':
     # dataset = HandWrittenDataset(root_dir='data', csv_path='crop_data.csv')
     processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
 
-    df = pd.read_csv('crop_data.csv')
+    df = pd.read_csv('../../crop_data.csv')
     df = df[~df['number'].isnull()]
 
     train_df, test_df = train_test_split(df, test_size=0.2)
