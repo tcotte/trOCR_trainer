@@ -12,12 +12,15 @@ RUN pip3 install transformers
 
 RUN pip3 install protobuf
 RUN pip3 install --upgrade protobuf==3.20.1
+RUN pip3 install pandas
+RUN pip3 install joblib
+
 
 COPY . .
 
 RUN mkdir /workspace
 RUN chown -R 42420 ./workspace
 
-CMD ["trOCR_classification/launch_processing.py"]
+CMD ["trOCR_pre_annotation/launch_processing.py"]
 ENTRYPOINT ["python3.9"]
-RUN chown -R 42420 ./trOCR_classification
+RUN chown -R 42420 ./trOCR_pre_annotation

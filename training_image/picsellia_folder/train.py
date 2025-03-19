@@ -23,7 +23,15 @@ logging.getLogger().setLevel(logging.INFO)
 
 cer_metric = evaluate.load("cer")
 
-def compute_cer(pred_ids, label_ids):
+def compute_cer(pred_ids: torch.Tensor, label_ids: torch.Tensor) -> float:
+    """
+    Compute CER: it measures the rate of erroneous characters produced by an OCR system compared to the ground truth. It
+    is calculated by dividing the total number of incorrect characters by the total number of characters in the
+    reference text. CER is expressed as a percentage.
+    :param pred_ids: Predictions done by the model;
+    :param label_ids: ground-truth
+    :return: CER metric
+    """
     pred_str = processor.batch_decode(pred_ids, skip_special_tokens=True)
     label_ids[label_ids == -100] = processor.tokenizer.pad_token_id
     label_str = processor.batch_decode(label_ids, skip_special_tokens=True)
@@ -33,6 +41,11 @@ def compute_cer(pred_ids, label_ids):
     return cer
 
 def get_encoder_decoder_model(model_weights: str) -> torch.nn:
+    """
+    Configure vision encoder decoder model.
+    :param model_weights: model weights
+    :return: configured model
+    """
     model = VisionEncoderDecoderModel.from_pretrained(model_weights)
 
     # set special tokens used for creating the decoder_input_ids from the labels
@@ -51,7 +64,14 @@ def get_encoder_decoder_model(model_weights: str) -> torch.nn:
 
     return model
 
-def train_model(model: torch.nn.Module, nb_epochs: int, picsellia_logger: PicselliaLogger):
+def train_model(model: torch.nn.Module, nb_epochs: int, picsellia_logger: PicselliaLogger) -> torch.nn.Module:
+    """
+    Train model function
+    :param model: model which will be trained in the function
+    :param nb_epochs: number of epochs to train the model
+    :param picsellia_logger: class which logs the training metrics into Picsell.ia platform.
+    :return: Trained model.
+    """
     picsellia_logger.on_train_begin()
 
     for epoch in range(nb_epochs):  # loop over the dataset multiple times
@@ -100,6 +120,13 @@ def train_model(model: torch.nn.Module, nb_epochs: int, picsellia_logger: Picsel
 
 
 def fill_picsellia_evaluation_tab(model: torch.nn.Module, data_loader: DataLoader, test_dataset_id: UUID) -> None:
+    """
+    Fill Picsellia evaluation which allows comparing on a dedicated bench of images the prediction done by the freshly
+    trained model with the ground-truth.
+    :param model: Model which will be used to do the predictions
+    :param data_loader: Dataloader which gathers the bench of images on which the evaluation will be done
+    :param test_dataset_id: ID of the dataset version which comports the pictures on which the evaluation will be done
+    """
     model.eval()
 
     classification_dataset_version = client.get_dataset_version_by_id(test_dataset_id)
@@ -116,8 +143,8 @@ def fill_picsellia_evaluation_tab(model: torch.nn.Module, data_loader: DataLoade
             label = classification_dataset_version.get_or_create_label(name=text)
             experiment.add_evaluation(asset, classifications=[(label, 1.0)])
 
-            job = experiment.compute_evaluations_metrics(InferenceType.CLASSIFICATION)
-            job.wait_for_done()
+    job = experiment.compute_evaluations_metrics(InferenceType.CLASSIFICATION)
+    job.wait_for_done()
 
 if __name__ == '__main__':
     api_token = os.environ["api_token"]
@@ -131,6 +158,17 @@ if __name__ == '__main__':
     learning_rate = context["learning_rate"]
     test_size = context["test_size"]
     batch_size = context["batch_size"]
+
+    if 'max_length_characters' in context.keys():
+        max_length_characters = context["max_length_characters"]
+    else:
+        max_length_characters = 5
+        logging.info(f'max_length_characters not found: {max_length_characters} is set by default.')
+
+    logging.info('Parameters used for the training: ')
+    for k, v in context.items():
+        logging.info(f'     - {k}: {v}')
+
     val_object_detection_dataset = client.get_dataset_version_by_id(eval(context["val_object_detection_id"]))
     train_object_detection_dataset = client.get_dataset_version_by_id(eval(context["train_object_detection_id"]))
     pretrained_trOCR_processor_weights = context["pretrained_trOCRprocessor"]
@@ -138,7 +176,6 @@ if __name__ == '__main__':
     val_classification_dataset_id = experiment.get_dataset(name='val').id
     vision_encoder_decoder_model_weights = context["vision_encoder_decoder_model_weights"]
     num_workers: Optional[int] = context["num_workers"] if context["num_workers"] is not None else os.cpu_count()
-
 
 
     root_dataset_path = '../../datasets'
@@ -154,12 +191,12 @@ if __name__ == '__main__':
     metric = evaluate.load("cer")
     processor = TrOCRProcessor.from_pretrained(pretrained_trOCR_processor_weights)
 
+    # csv file will list filenames, relative bounding boxes and text targets
     if not os.path.exists(os.path.join(root_dataset_path, 'data.csv')):
         df = create_dataframe_with_bboxes(dataset_object_detection_version=train_object_detection_dataset,
-            classification_dataset_versions=client.get_dataset_version_by_id(train_classification_dataset_id))
+            classification_dataset_versions=client.get_dataset_version_by_id(train_classification_dataset_id),
+            num_workers=num_workers)
         df = df[~df['number'].isnull()]
-
-        # temporary
         df.to_csv(os.path.join(root_dataset_path, 'data.csv'))
 
     else:
@@ -173,8 +210,11 @@ if __name__ == '__main__':
         title="Nb elem / split")
 
 
-    train_dataset = HandWrittenTrainDataset(root_dir=dataset_train_path, df=train_df, processor=processor)
-    validation_dataset = HandWrittenTrainDataset(root_dir=dataset_train_path, df=validation_df, processor=processor)
+    # datasets and dataloaders creation
+    train_dataset = HandWrittenTrainDataset(root_dir=dataset_train_path, df=train_df, processor=processor,
+                                            max_target_length=max_length_characters)
+    validation_dataset = HandWrittenTrainDataset(root_dir=dataset_train_path, df=validation_df, processor=processor,
+                                                 max_target_length=max_length_characters)
 
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     eval_dataloader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
@@ -188,29 +228,15 @@ if __name__ == '__main__':
 
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
-
     model = train_model(model=model, nb_epochs=nb_epochs, picsellia_logger=picsellia_logger)
 
     # save model
-    # model.save_pretrained(".")
-
-    # model_path = 'saved_models'
-    # os.makedirs(model_path, exist_ok=True)
     model_path = 'model'
-    # torch.save(model.state_dict(), model_path)
 
     model.save_pretrained(model_path)
     picsellia_logger.store_model(model_path=model_path, model_name='model-best')
 
 
-    '''
-    # TODO try to load model like this (it will save space on disk):
-    from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-    import torch 
-    
-    model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-stage1")
-    model.load_state_dict(torch.load('/content/trOCR_trainer/finetuned_model_weights.pth'))
-    '''
     # Evaluate
     test_dataset = HandWrittenTestDataset(root_dir=dataset_test_path,
                                           object_detection_dataset_version=val_object_detection_dataset,

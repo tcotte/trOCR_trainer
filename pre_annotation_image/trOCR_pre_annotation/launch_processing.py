@@ -15,7 +15,7 @@ from picsellia.types.enums import JobRunStatus
 import logging
 
 logging.getLogger('picsellia').setLevel(logging.INFO)
-os.chdir('trOCR_classification')
+os.chdir('trOCR_pre_annotation')
 command = "python3.9 main.py"
 
 if 'api_token' not in os.environ:

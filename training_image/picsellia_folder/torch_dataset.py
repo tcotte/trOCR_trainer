@@ -1,18 +1,16 @@
 import logging
 import os
+from uuid import UUID
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import torch
+from PIL import Image
 from joblib import Parallel, delayed
 from picsellia import Asset
-from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
-from PIL import Image
 from tqdm import tqdm
 from transformers import TrOCRProcessor
 
-import evaluate
 
 class HandWrittenDataset(Dataset):
     def __init__(self, root_dir :str, csv_path: str, transform=None):
@@ -36,16 +34,31 @@ class HandWrittenDataset(Dataset):
 
 
 class HandWrittenTrainDataset(Dataset):
-    def __init__(self, root_dir, df, processor, max_target_length=3):
+    def __init__(self, root_dir: str, df: pd.DataFrame, processor: TrOCRProcessor, max_target_length: int=3):
+        """
+        Training dataset
+        :param root_dir: directory where the images can be found
+        :param df: Dataframe which lists all the pictures with their filenames, bounding boxes and target text.
+        :param processor: processor which will be used to tokenize target text
+        :param max_target_length: maximum length of the target text
+        """
         self.root_dir = root_dir
         self.df = df
         self.processor = processor
         self.max_target_length = max_target_length
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """
+        :return: length of the dataset
+        """
         return len(self.df)
 
     def __getitem__(self, index: int) -> dict:
+        """
+        Get item in the dataset
+        :param index: index of the dataset's item
+        :return: dataset's item
+        """
         # get file name + text
         image = Image.open(os.path.join(self.root_dir, self.df.iloc[index]['filename'])).convert('RGB')
 
@@ -70,8 +83,17 @@ class HandWrittenTrainDataset(Dataset):
 
 
 class HandWrittenTestDataset(Dataset):
-    def __init__(self, root_dir, object_detection_dataset_version, processor, num_workers:int = os.cpu_count(),
-                 max_target_length=3):
+    def __init__(self, root_dir: str, object_detection_dataset_version: UUID, processor: TrOCRProcessor,
+                 num_workers:int = os.cpu_count(), max_target_length: int=3):
+        """
+        Test dataset
+        :param root_dir: directory where the images can be found
+        :param object_detection_dataset_version: dataset version which comports the same pictures as the classification
+        dataset that we want to test. The import of this dataset will enable to locate (thanks to bounding boxes) the
+        text that we want to decipher.
+        :param processor: Processor which will be used to tokenize target text
+        :param max_target_length: maximum length of the target text
+        """
         self.root_dir = root_dir
         self.__num_workers = num_workers
         self._object_detection_dataset_version = object_detection_dataset_version
@@ -138,34 +160,3 @@ class HandWrittenTestDataset(Dataset):
 
         encoding = {"pixel_values": pixel_values.squeeze(), 'filename': self._df.iloc[index]['filename']}
         return encoding
-
-
-
-
-if __name__ == '__main__':
-    metric = evaluate.load("cer")
-    # dataset = HandWrittenDataset(root_dir='data', csv_path='crop_data.csv')
-    processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
-
-    df = pd.read_csv('../../crop_data.csv')
-    df = df[~df['number'].isnull()]
-
-    train_df, test_df = train_test_split(df, test_size=0.2)
-    print(len(train_df), len(test_df))
-
-
-    train_dataset = HandWrittenTrainDataset(root_dir='data', df=train_df, processor=processor)
-    encoding = train_dataset[0]
-
-    for k, v in encoding.items():
-        print(k, v.shape)
-
-    labels = encoding['labels']
-    print(labels)
-
-    plt.imshow(torch.permute(encoding['pixel_values'], (1, 2, 0)))
-    plt.show()
-
-    labels[labels == -100] = processor.tokenizer.pad_token_id
-    label_str = processor.decode(labels, skip_special_tokens=True)
-    print('Decoded Label:', label_str)

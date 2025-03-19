@@ -8,7 +8,8 @@ from picsellia import DatasetVersion, Asset
 from tqdm import tqdm
 
 
-def get_dataframe_row(asset: Asset, classification_dataset_versions: Union[DatasetVersion, list[DatasetVersion]]):
+def get_dataframe_row(asset: Asset, classification_dataset_versions: Union[DatasetVersion, list[DatasetVersion]]) \
+        -> None:
     data = {}
 
     filename = asset.filename

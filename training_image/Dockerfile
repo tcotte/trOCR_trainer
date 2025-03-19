@@ -7,6 +7,8 @@ RUN pip3 install torch torchvision torchaudio --index-url https://download.pytor
 RUN pip3 install evaluate
 RUN pip3 install jiwer
 RUN pip3 install picsellia
+RUN pip3 install scikit-learn
+RUN pip3 install transformers
 
 WORKDIR /picsellia_folder
 
