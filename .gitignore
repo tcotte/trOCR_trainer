@@ -174,3 +174,5 @@ cython_debug/
 .pypirc
 data/
 datasets/
+models/
+model_pretrained/

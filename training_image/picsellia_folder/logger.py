@@ -56,12 +56,11 @@ class PicselliaLogger:
             self._experiment.log(name='GPU occupancy (%)', type=LogType.LINE, data=get_GPU_occupancy())
 
     def store_model(self, model_path: str, model_name: str) -> None:
-        self._experiment.store(model_name, model_path, do_zip=False)
+        self._experiment.store(model_name, model_path, do_zip=True)
 
     def plot_dataset_version_labels(self, dataset_version_names: list[str]) -> None:
         for version_name in dataset_version_names:
             self.dataset_label_distribution(dataset_version_name=version_name)
-
 
     def dataset_label_distribution(self, dataset_version_name: str) -> None:
         list_label_names = []

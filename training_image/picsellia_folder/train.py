@@ -6,17 +6,15 @@ from uuid import UUID
 import evaluate
 import pandas as pd
 import torch
-from picsellia import Client, DatasetVersion
+from picsellia import Client
 from picsellia.types.enums import InferenceType
-from sklearn.metrics import classification_report
-
-from logger import PicselliaLogger
 from sklearn.model_selection import train_test_split
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
+from logger import PicselliaLogger
 from prepare_dataset import create_dataframe_with_bboxes
 from torch_dataset import HandWrittenTrainDataset, HandWrittenTestDataset
 
@@ -194,15 +192,16 @@ if __name__ == '__main__':
     model = train_model(model=model, nb_epochs=nb_epochs, picsellia_logger=picsellia_logger)
 
     # save model
-    model.save_pretrained(".")
+    # model.save_pretrained(".")
 
-    model_path = 'saved_models'
-    os.makedirs(model_path, exist_ok=True)
-    model_path = os.path.join(model_path, 'best.pth')
+    # model_path = 'saved_models'
+    # os.makedirs(model_path, exist_ok=True)
+    model_path = 'model'
     torch.save(model.state_dict(), model_path)
 
+    model.save_pretrained(model_path)
     picsellia_logger.store_model(model_path=model_path, model_name='model-best')
-    # model.save_pretrained("model/")
+
 
     '''
     # TODO try to load model like this (it will save space on disk):
