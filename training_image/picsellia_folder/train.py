@@ -197,7 +197,7 @@ if __name__ == '__main__':
     # model_path = 'saved_models'
     # os.makedirs(model_path, exist_ok=True)
     model_path = 'model'
-    torch.save(model.state_dict(), model_path)
+    # torch.save(model.state_dict(), model_path)
 
     model.save_pretrained(model_path)
     picsellia_logger.store_model(model_path=model_path, model_name='model-best')
