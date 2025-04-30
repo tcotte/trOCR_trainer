@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 from PIL import Image
 from joblib import Parallel, delayed
-from picsellia import Asset
+from picsellia import Asset, DatasetVersion
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from transformers import TrOCRProcessor
@@ -83,7 +83,7 @@ class HandWrittenTrainDataset(Dataset):
 
 
 class HandWrittenTestDataset(Dataset):
-    def __init__(self, root_dir: str, object_detection_dataset_version: UUID, processor: TrOCRProcessor,
+    def __init__(self, root_dir: str, object_detection_dataset_version: DatasetVersion, processor: TrOCRProcessor,
                  num_workers:int = os.cpu_count(), max_target_length: int=3):
         """
         Test dataset

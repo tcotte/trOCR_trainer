@@ -173,11 +173,6 @@ if __name__ == '__main__':
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # classification_dataset_version = create_dataset_version_from_another(
-    #     input_dataset_version=object_detection_dataset_version)
-    # classification_dataset_version = output_dataset_version
-    # copy images of object detection dataset version to classification dataset version
-
 
     # define processor
     processor = configure_processor(model_parameters=model_parameters, processing_context=context)
@@ -227,36 +222,3 @@ if __name__ == '__main__':
                        model_outputs=generated_text)
 
     logging.info('Pre annotation with trOCR was successfully completed')
-
-
-    # for filename in os.listdir(data_path):
-    #     asset = object_detection_dataset_version.find_asset(filename=filename)
-    #     try:
-    #         annotation = asset.get_annotation()
-    #
-    #         # asset is supposed to contain only one rectangle
-    #         if not annotation.list_rectangles() == []:
-    #             rectangle = annotation.list_rectangles()[0]
-    #
-    #             img = cv2.imread(os.path.join(data_path, filename))
-    #             img_crop = img[rectangle.y:rectangle.y + rectangle.h, rectangle.x:rectangle.x + rectangle.w]
-    #
-    #             pixel_values = processor(images=img_crop, return_tensors="pt").pixel_values
-    #             pixel_values = pixel_values.to(device)
-    #
-    #             with torch.no_grad():
-    #                 generated_ids = model.generate(pixel_values,
-    #                                                max_length=5)  # Max length of the generated sequence
-    #
-    #             generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-    #
-    #
-    #             annotate_asset(classification_dataset_version=classification_dataset_version,
-    #                            filename=filename,
-    #                            model_output=generated_text)
-    #
-    #     except picsellia.exceptions.ResourceNotFoundError:
-    #         print(f'No annotation found for the item {filename}')
-    #
-    #     else:
-    #         logging.warning(f'Can not label {filename} because there is not any annotated rectangle')

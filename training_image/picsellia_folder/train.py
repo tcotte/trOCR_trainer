@@ -5,6 +5,7 @@ from uuid import UUID
 
 import evaluate
 import pandas as pd
+import picsellia.exceptions
 import torch
 from picsellia import Client
 from picsellia.types.enums import InferenceType
@@ -138,10 +139,14 @@ def fill_picsellia_evaluation_tab(model: torch.nn.Module, data_loader: DataLoade
         generated_text = processor.batch_decode(outputs, skip_special_tokens=True)
 
         for filename, text in zip(batch['filename'], generated_text):
-            asset = classification_dataset_version.find_asset(filename=filename)
+            try:
+                asset = classification_dataset_version.find_asset(filename=filename)
 
-            label = classification_dataset_version.get_or_create_label(name=text)
-            experiment.add_evaluation(asset, classifications=[(label, 1.0)])
+                label = classification_dataset_version.get_or_create_label(name=text)
+                experiment.add_evaluation(asset, classifications=[(label, 1.0)])
+
+            except picsellia.exceptions.ResourceNotFoundError:
+                logging.warning(f'Filename {filename} was not found in dataset_id: {test_dataset_id}')
 
     job = experiment.compute_evaluations_metrics(InferenceType.CLASSIFICATION)
     job.wait_for_done()
@@ -183,7 +188,7 @@ if __name__ == '__main__':
     dataset_test_path = os.path.join(root_dataset_path, 'test_data')
 
     for dataset_path, dataset_id in zip([dataset_train_path, dataset_test_path],
-                                [train_classification_dataset_id, eval(context["val_object_detection_id"])]) :
+                                [train_classification_dataset_id, val_classification_dataset_id]) :
         if not os.path.isdir(dataset_path):
             dataset_version = client.get_dataset_version_by_id(dataset_id)
             dataset_version.download(dataset_path)

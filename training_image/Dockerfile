@@ -17,6 +17,7 @@ COPY picsellia_folder .
 
 RUN mkdir -p /saved_models && chmod 777 /saved_models
 RUN mkdir -p /datasets && chmod 777 /datasets
+RUN mkdir -p /workspace && chmod 777 /workspace
 RUN chmod 777 ./
 
 ENTRYPOINT ["python3.9", "train.py"]
