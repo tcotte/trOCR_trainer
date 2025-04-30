@@ -119,7 +119,7 @@ class PicselliaLogger:
 
             distribution_dict = Counter(list_label_names)
             data = {'x': list(distribution_dict.keys()), 'y': list(distribution_dict.values())}
-            experiment.log(name=f'{dataset_version_name}_labels', type=LogType.BAR, data=data)
+            self._experiment.log(name=f'{dataset_version_name}_labels', type=LogType.BAR, data=data)
 
         except picsellia.exceptions.ResourceNotFoundError:
             logging.warning(f'Dataset version with name {dataset_version_name} was not found \n')
