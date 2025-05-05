@@ -2,11 +2,15 @@ import logging
 import os
 import uuid
 from collections import Counter
-from typing import Dict
+from typing import Dict, Optional
 
 import picsellia
+from joblib import delayed, Parallel
+from natsort import natsorted
 from picsellia import Client, Experiment, DatasetVersion
 from picsellia.types.enums import LogType
+from picsellia_annotations.coco import Annotation
+from tqdm import tqdm
 
 from utils import get_GPU_occupancy
 
@@ -109,15 +113,23 @@ class PicselliaLogger:
         Plot label distribution of dataset version in Picsellia.
         :param dataset_version_name: Alias of dataset version
         """
-        list_label_names = []
+        def get_number_in_annotation(annotation: Annotation) -> Optional[str]:
+            if annotation.list_rectangles() != []:
+                bbox = annotation.list_rectangles()[0]
+                return bbox.text
+
+            else:
+                return None
 
         try:
             dataset_version: DatasetVersion = self._experiment.get_dataset(name=dataset_version_name)
 
-            for annotation in dataset_version.list_annotations():
-                list_label_names.append(annotation.list_classifications()[0].label.name)
+            list_retrieved_number = Parallel(n_jobs=os.cpu_count())(delayed(get_number_in_annotation)(annotation) for annotation in tqdm(dataset_version.list_annotations()))
+
+            list_label_names = [a for a in list_retrieved_number if a is not None]
 
             distribution_dict = Counter(list_label_names)
+            distribution_dict = {key: distribution_dict[key] for key in natsorted(list_label_names)}
             data = {'x': list(distribution_dict.keys()), 'y': list(distribution_dict.values())}
             self._experiment.log(name=f'{dataset_version_name}_labels', type=LogType.BAR, data=data)
 
@@ -129,12 +141,10 @@ class PicselliaLogger:
 
 
 
-
-
 if __name__ == '__main__':
     print(os.environ['api_token'])
     client = Client(api_token=os.environ['api_token'], organization_id=os.environ["organization_id"])
-    experiment_id = '0195ada0-141a-793a-a176-b380b5bf2736'
+    experiment_id = '01969f57-54c7-7687-a8ad-8f8dce4d31a3'
     experiment = client.get_experiment_by_id(experiment_id)
     logger = PicselliaLogger(client=client, experiment=experiment)
     # ds_versions = experiment.list_attached_dataset_versions()
@@ -143,7 +153,4 @@ if __name__ == '__main__':
     for ds_alias in ['train', 'val']:
         logger.dataset_label_distribution(dataset_version_name=ds_alias)
 
-    # training_dataset_version = experiment.get_dataset(name='train')
-
-    # training_dataset_version.list_labels()
 

@@ -2,11 +2,13 @@ import logging
 import os
 from uuid import UUID
 
+import imutils.paths
 import pandas as pd
 import torch
 from PIL import Image
 from joblib import Parallel, delayed
 from picsellia import Asset, DatasetVersion
+from pycocotools.coco import COCO
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from transformers import TrOCRProcessor
@@ -159,4 +161,81 @@ class HandWrittenTestDataset(Dataset):
         pixel_values = self.processor(crop_image, return_tensors="pt").pixel_values
 
         encoding = {"pixel_values": pixel_values.squeeze(), 'filename': self._df.iloc[index]['filename']}
+        return encoding
+
+
+class HandWrittenCOCODataset(Dataset):
+    def __init__(self, root_dir: str, coco_filepath: str, processor: TrOCRProcessor, max_target_length: int=3):
+        """
+        Training dataset
+        :param root_dir: directory where the images can be found
+        :param df: Dataframe which lists all the pictures with their filenames, bounding boxes and target text.
+        :param processor: processor which will be used to tokenize target text
+        :param max_target_length: maximum length of the target text
+        """
+        self.root_dir = root_dir
+        self.coco_annotations = COCO(coco_filepath)
+        self.processor = processor
+        self.max_target_length = max_target_length
+
+        self._filtered_index = self.filter_index_by_annotations()
+
+    def filter_index_by_annotations(self) -> list[int]:
+        list_index = []
+        for i in range(len(self.coco_annotations.imgs)):
+            try:
+                ann = self.coco_annotations.loadAnns(self.coco_annotations.getAnnIds(imgIds=[i]))
+                if ann != []:
+                    if 'utf8_string' in ann[0].keys():
+                        if ann[0]['utf8_string'] != '':
+                            list_index.append(i)
+
+            except:
+                print(i)
+
+        return list_index
+
+    def __len__(self) -> int:
+        """
+        :return: length of the dataset
+        """
+        return len(self._filtered_index)
+
+    def __getitem__(self, index: int) -> dict:
+        """
+        Get item in the dataset
+        :param index: index of the dataset's item
+        :return: dataset's item
+        """
+        index = self._filtered_index[index]
+        coco_image_info = self.coco_annotations.imgs[index]
+        coco_image_id = coco_image_info['id']
+        filename = coco_image_info['file_name']
+
+
+        # get file name + text
+        image = Image.open(os.path.join(self.root_dir, filename)).convert('RGB')
+
+        list_bbox_info = self.coco_annotations.imgToAnns[coco_image_id]
+
+        if list_bbox_info != []:
+            bbox_info = list_bbox_info[0]
+            bbox_coordinates = bbox_info['bbox']
+
+            crop_image = image.crop(bbox_coordinates)
+            pixel_values = self.processor(crop_image, return_tensors="pt").pixel_values
+
+            text = bbox_info['utf8_string']
+            # add labels (input_ids) by encoding the text
+            labels = self.processor.tokenizer(text,
+                                              padding="max_length",
+                                              max_length=self.max_target_length).input_ids
+
+            # important: make sure that PAD tokens are ignored by the loss function
+            labels = [label if label != self.processor.tokenizer.pad_token_id else -100 for label in labels]
+
+            encoding = {"pixel_values": pixel_values.squeeze(), "labels": torch.tensor(labels)}
+
+        else:
+            encoding = {"pixel_values": None, "labels": None}
         return encoding

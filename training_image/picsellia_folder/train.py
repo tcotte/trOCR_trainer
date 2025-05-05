@@ -17,7 +17,7 @@ from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
 from logger import PicselliaLogger
 from prepare_dataset import create_dataframe_with_bboxes
-from torch_dataset import HandWrittenTrainDataset, HandWrittenTestDataset
+from torch_dataset import HandWrittenTrainDataset, HandWrittenTestDataset, HandWrittenCOCODataset
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)
 logging.getLogger().setLevel(logging.INFO)
@@ -174,8 +174,8 @@ if __name__ == '__main__':
     for k, v in context.items():
         logging.info(f'     - {k}: {v}')
 
-    val_object_detection_dataset = client.get_dataset_version_by_id(eval(context["val_object_detection_id"]))
-    train_object_detection_dataset = client.get_dataset_version_by_id(eval(context["train_object_detection_id"]))
+    # val_object_detection_dataset = client.get_dataset_version_by_id(eval(context["val_object_detection_id"]))
+    # train_object_detection_dataset = client.get_dataset_version_by_id(eval(context["train_object_detection_id"]))
     pretrained_trOCR_processor_weights = context["pretrained_trOCRprocessor"]
     train_classification_dataset_id = experiment.get_dataset(name='train').id
     val_classification_dataset_id = experiment.get_dataset(name='val').id
@@ -184,45 +184,52 @@ if __name__ == '__main__':
 
 
     root_dataset_path = '../../datasets'
-    dataset_train_path = os.path.join(root_dataset_path, 'train_data')
-    dataset_test_path = os.path.join(root_dataset_path, 'test_data')
+    dataset_train_path = os.path.join(root_dataset_path, 'train')
+    dataset_validation_path = os.path.join(root_dataset_path, 'val')
 
-    for dataset_path, dataset_id in zip([dataset_train_path, dataset_test_path],
+    for dataset_path, dataset_id in zip([dataset_train_path, dataset_validation_path],
                                 [train_classification_dataset_id, val_classification_dataset_id]) :
         if not os.path.isdir(dataset_path):
             dataset_version = client.get_dataset_version_by_id(dataset_id)
             dataset_version.download(dataset_path)
+            dataset_version.import_annotations_coco_file(file_path=os.path.join(dataset_version, 'COCO.json'))
 
     metric = evaluate.load("cer")
     processor = TrOCRProcessor.from_pretrained(pretrained_trOCR_processor_weights)
 
     # csv file will list filenames, relative bounding boxes and text targets
-    if not os.path.exists(os.path.join(root_dataset_path, 'data.csv')):
-        df = create_dataframe_with_bboxes(dataset_object_detection_version=train_object_detection_dataset,
-            classification_dataset_versions=client.get_dataset_version_by_id(train_classification_dataset_id),
-            num_workers=num_workers)
-        df = df[~df['number'].isnull()]
-        df.to_csv(os.path.join(root_dataset_path, 'data.csv'))
+    # if not os.path.exists(os.path.join(root_dataset_path, 'data.csv')):
+    #     df = create_dataframe_with_bboxes(dataset_object_detection_version=train_object_detection_dataset,
+    #         classification_dataset_versions=client.get_dataset_version_by_id(train_classification_dataset_id),
+    #         num_workers=num_workers)
+    #     df = df[~df['number'].isnull()]
+    #     df.to_csv(os.path.join(root_dataset_path, 'data.csv'))
+    #
+    # else:
+    #     df = pd.read_csv(os.path.join(root_dataset_path, 'data.csv'))
 
-    else:
-        df = pd.read_csv(os.path.join(root_dataset_path, 'data.csv'))
+    # train_df, validation_df = train_test_split(df, test_size=test_size, random_state=42)
 
-    train_df, validation_df = train_test_split(df, test_size=test_size, random_state=42)
 
-    picsellia_logger = PicselliaLogger(client=client, experiment=experiment)
-    picsellia_logger.log_split_table(
-        annotations_in_split={"train": len(train_df), "val": len(validation_df)},
-        title="Nb elem / split")
 
 
     # datasets_old and dataloaders creation
-    train_dataset = HandWrittenTrainDataset(root_dir=dataset_train_path, df=train_df, processor=processor,
+    train_dataset = HandWrittenCOCODataset(root_dir=dataset_train_path,
+                                           coco_filepath=os.path.join(dataset_train_path, 'COCO.json'),
+                                           processor=processor,
                                             max_target_length=max_length_characters)
-    validation_dataset = HandWrittenTrainDataset(root_dir=dataset_train_path, df=validation_df, processor=processor,
-                                                 max_target_length=max_length_characters)
+    validation_dataset = HandWrittenCOCODataset(root_dir=dataset_train_path,
+                                                coco_filepath=os.path.join(dataset_validation_path, 'COCO.json'),
+                                                processor=processor,
+                                                max_target_length=max_length_characters)
 
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     eval_dataloader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    picsellia_logger = PicselliaLogger(client=client, experiment=experiment)
+    picsellia_logger.log_split_table(
+        annotations_in_split={"train": len(train_dataset), "val": len(validation_dataset)},
+        title="Nb elem / split")
 
     model = get_encoder_decoder_model(model_weights=vision_encoder_decoder_model_weights)
 
@@ -243,9 +250,7 @@ if __name__ == '__main__':
 
 
     # Evaluate
-    test_dataset = HandWrittenTestDataset(root_dir=dataset_test_path,
-                                          object_detection_dataset_version=val_object_detection_dataset,
-                                          processor=processor)
+    test_dataset = validation_dataset
 
     test_data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
