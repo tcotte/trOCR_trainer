@@ -173,6 +173,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 data/
-datasets/
+datasets_old/
 models/
 model_pretrained/
+help/

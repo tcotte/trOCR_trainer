@@ -16,7 +16,7 @@ WORKDIR /picsellia_folder
 COPY picsellia_folder .
 
 RUN mkdir -p /saved_models && chmod 777 /saved_models
-RUN mkdir -p /datasets && chmod 777 /datasets
+RUN mkdir -p /datasets_old && chmod 777 /datasets_old
 RUN mkdir -p /workspace && chmod 777 /workspace
 RUN chmod 777 ./
 

@@ -215,7 +215,7 @@ if __name__ == '__main__':
         title="Nb elem / split")
 
 
-    # datasets and dataloaders creation
+    # datasets_old and dataloaders creation
     train_dataset = HandWrittenTrainDataset(root_dir=dataset_train_path, df=train_df, processor=processor,
                                             max_target_length=max_length_characters)
     validation_dataset = HandWrittenTrainDataset(root_dir=dataset_train_path, df=validation_df, processor=processor,
