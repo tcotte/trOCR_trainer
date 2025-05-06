@@ -9,14 +9,15 @@ RUN pip3 install jiwer
 RUN pip3 install picsellia
 RUN pip3 install scikit-learn
 RUN pip3 install transformers
+RUN pip3 install pycocotools
 
-WORKDIR /picsellia_folder
+WORKDIR /training_image
 
 
-COPY picsellia_folder .
+COPY training_image .
 
 RUN mkdir -p /saved_models && chmod 777 /saved_models
-RUN mkdir -p /datasets_old && chmod 777 /datasets_old
+RUN mkdir -p /datasets && chmod 777 /datasets
 RUN mkdir -p /workspace && chmod 777 /workspace
 RUN chmod 777 ./
 

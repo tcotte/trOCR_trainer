@@ -1,8 +1,6 @@
 import logging
 import os
-from uuid import UUID
 
-import imutils.paths
 import pandas as pd
 import torch
 from PIL import Image

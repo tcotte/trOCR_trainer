@@ -100,7 +100,7 @@ def train_model(model: torch.nn.Module, nb_epochs: int, picsellia_logger: Picsel
         model.eval()
         valid_cer = 0.0
         with torch.no_grad():
-            for batch in eval_dataloader:
+            for batch in val_dataloader:
                 # run batch generation
                 outputs = model.generate(batch["pixel_values"].to(device), max_length=max_length_characters)
                 # compute metrics
@@ -109,11 +109,11 @@ def train_model(model: torch.nn.Module, nb_epochs: int, picsellia_logger: Picsel
 
         t_epoch.set_postfix(
             training_loss=train_loss / len(train_dataloader),
-            validation_CER=valid_cer / len(eval_dataloader))
+            validation_CER=valid_cer / len(val_dataloader))
 
         picsellia_logger.on_epoch_end(epoch=epoch,
                                       train_loss=train_loss / len(train_dataloader),
-                                      val_cer=valid_cer / len(eval_dataloader),
+                                      val_cer=valid_cer / len(val_dataloader),
                                       display_gpu_occupancy=True if torch.cuda.is_available() else False)
 
     return model
@@ -134,7 +134,12 @@ def transform_bbox_text2label(asset: Asset, classification_dataset_version: Data
             rectangle = rectangles[0]
             text = rectangle.text
             asset_classification = classification_dataset_version.find_asset(filename=filename)
-            label = classification_dataset_version.get_or_create_label(name=text)
+
+            if text != '':
+                label = classification_dataset_version.get_or_create_label(name=text)
+            else:
+                label = classification_dataset_version.get_or_create_label(name='-')
+
             classification_annotation = asset_classification.create_annotation()
             classification_annotation.create_classification(label=label)
 
@@ -143,6 +148,8 @@ def transform_bbox_text2label(asset: Asset, classification_dataset_version: Data
 
     except picsellia.exceptions.ResourceConflictError:
         logging.warning(f'Asset {filename} was already annotated')
+
+    picsellia.exceptions.BadRequestError
 
     except TypeError:
         logging.warning(f'Impossible to create label {text}')
@@ -230,13 +237,13 @@ if __name__ == '__main__':
     # val_object_detection_dataset = client.get_dataset_version_by_id(eval(context["val_object_detection_id"]))
     # train_object_detection_dataset = client.get_dataset_version_by_id(eval(context["train_object_detection_id"]))
     pretrained_trOCR_processor_weights = context["pretrained_trOCRprocessor"]
-    train_classification_dataset_id = experiment.get_dataset(name='train').id
-    val_classification_dataset_id = experiment.get_dataset(name='val').id
+    train_dataset_version_id = experiment.get_dataset(name='train').id
+    val_dataset_version_id = experiment.get_dataset(name='val').id
 
     if len(experiment.list_attached_dataset_versions()) == 3:
-        test_classification_dataset_id = experiment.get_dataset(name='test').id
+        test_dataset_version_id = experiment.get_dataset(name='test').id
     else:
-        test_classification_dataset_id = experiment.get_dataset(name='test').id
+        test_dataset_version_id = experiment.get_dataset(name='val').id
 
 
     vision_encoder_decoder_model_weights = context["vision_encoder_decoder_model_weights"]
@@ -246,11 +253,12 @@ if __name__ == '__main__':
     root_dataset_path = '../../datasets'
     dataset_train_path = os.path.join(root_dataset_path, 'train')
     dataset_validation_path = os.path.join(root_dataset_path, 'val')
+    dataset_test_path = os.path.join(root_dataset_path, 'test')
 
 
 
-    for dataset_path, dataset_id in zip([dataset_train_path, dataset_validation_path],
-                                [train_classification_dataset_id, val_classification_dataset_id]) :
+    for dataset_path, dataset_id in zip([dataset_train_path, dataset_validation_path, dataset_test_path],
+                                        [train_dataset_version_id, val_dataset_version_id, test_dataset_version_id]) :
         if not os.path.isdir(dataset_path):
             dataset_version = client.get_dataset_version_by_id(dataset_id)
             dataset_version.download(dataset_path)
@@ -262,23 +270,6 @@ if __name__ == '__main__':
     metric = evaluate.load("cer")
     processor = TrOCRProcessor.from_pretrained(pretrained_trOCR_processor_weights)
 
-    # csv file will list filenames, relative bounding boxes and text targets
-    # if not os.path.exists(os.path.join(root_dataset_path, 'data.csv')):
-    #     df = create_dataframe_with_bboxes(dataset_object_detection_version=train_object_detection_dataset,
-    #         classification_dataset_versions=client.get_dataset_version_by_id(train_classification_dataset_id),
-    #         num_workers=num_workers)
-    #     df = df[~df['number'].isnull()]
-    #     df.to_csv(os.path.join(root_dataset_path, 'data.csv'))
-    #
-    # else:
-    #     df = pd.read_csv(os.path.join(root_dataset_path, 'data.csv'))
-
-    # train_df, validation_df = train_test_split(df, test_size=test_size, random_state=42)
-
-
-
-
-    # datasets_old and dataloaders creation
     train_dataset = HandWrittenCOCODataset(root_dir=dataset_train_path,
                                            coco_filepath=os.path.join(dataset_train_path, 'COCO.json'),
                                            processor=processor,
@@ -287,10 +278,15 @@ if __name__ == '__main__':
                                                 coco_filepath=os.path.join(dataset_validation_path, 'COCO.json'),
                                                 processor=processor,
                                                 max_target_length=max_length_characters,
+                                                is_test=False)
+    test_dataset = HandWrittenCOCODataset(root_dir=dataset_test_path,
+                                                coco_filepath=os.path.join(dataset_test_path, 'COCO.json'),
+                                                processor=processor,
+                                                max_target_length=max_length_characters,
                                                 is_test=True)
 
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    eval_dataloader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    val_dataloader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     picsellia_logger = PicselliaLogger(client=client, experiment=experiment)
     picsellia_logger.log_split_table(
@@ -317,12 +313,10 @@ if __name__ == '__main__':
 
 
     # Evaluate
-    test_dataset = validation_dataset
-
     test_data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     fill_picsellia_evaluation_tab(model=model,
                                   data_loader=test_data_loader,
-                                  test_dataset_version_id=val_classification_dataset_id,
+                                  test_dataset_version_id=val_dataset_version_id,
                                   max_length_characters=max_length_characters,
                                   experiment=experiment)
