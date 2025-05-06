@@ -163,9 +163,14 @@ class HandWrittenTestDataset(Dataset):
         encoding = {"pixel_values": pixel_values.squeeze(), 'filename': self._df.iloc[index]['filename']}
         return encoding
 
+def coco_to_xyxy(coco_bbox: list[int]) -> list[int]:
+    top_left_x, top_left_y, width, height = coco_bbox
+    return [top_left_x, top_left_y, top_left_x + width, top_left_y + height]
+
 
 class HandWrittenCOCODataset(Dataset):
-    def __init__(self, root_dir: str, coco_filepath: str, processor: TrOCRProcessor, max_target_length: int=3):
+    def __init__(self, root_dir: str, coco_filepath: str, processor: TrOCRProcessor, max_target_length: int=3,
+                 is_test: bool=False):
         """
         Training dataset
         :param root_dir: directory where the images can be found
@@ -179,6 +184,7 @@ class HandWrittenCOCODataset(Dataset):
         self.max_target_length = max_target_length
 
         self._filtered_index = self.filter_index_by_annotations()
+        self._is_test = is_test
 
     def filter_index_by_annotations(self) -> list[int]:
         list_index = []
@@ -220,7 +226,7 @@ class HandWrittenCOCODataset(Dataset):
 
         if list_bbox_info != []:
             bbox_info = list_bbox_info[0]
-            bbox_coordinates = bbox_info['bbox']
+            bbox_coordinates = coco_to_xyxy(coco_bbox=bbox_info['bbox'])
 
             crop_image = image.crop(bbox_coordinates)
             pixel_values = self.processor(crop_image, return_tensors="pt").pixel_values
@@ -235,6 +241,10 @@ class HandWrittenCOCODataset(Dataset):
             labels = [label if label != self.processor.tokenizer.pad_token_id else -100 for label in labels]
 
             encoding = {"pixel_values": pixel_values.squeeze(), "labels": torch.tensor(labels)}
+
+            if self._is_test:
+                encoding["filename"] = filename
+
 
         else:
             encoding = {"pixel_values": None, "labels": None}
